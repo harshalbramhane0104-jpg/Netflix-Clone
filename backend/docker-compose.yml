@@ -1,0 +1,9 @@
+services:
+  backend:
+    # Replace <account-id> and region below with your actual ECR repository URI
+    # (from Step 2 of the AWS Docker Compose guide, after you've pushed the image).
+    image: <account-id>.dkr.ecr.us-east-1.amazonaws.com/netflix-clone-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
