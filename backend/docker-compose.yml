@@ -1,9 +1,63 @@
+# Netflix Clone - 3-tier stack: MySQL (data) -> FastAPI (logic) -> React/nginx (UI)
+# Usage:  docker compose up --build -d      then open http://localhost:3000
+
 services:
-  backend:
-    # Replace <account-id> and region below with your actual ECR repository URI
-    # (from Step 2 of the AWS Docker Compose guide, after you've pushed the image).
-    image: <account-id>.dkr.ecr.us-east-1.amazonaws.com/netflix-clone-backend:latest
+  db:
+    image: mysql:8.0
+    container_name: netflix-mysql
     restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pw_change_me}
+      MYSQL_DATABASE: ${MYSQL_DB:-netflix_clone}
+      MYSQL_USER: ${MYSQL_USER:-netflix_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-netflix_pw_123}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    # No "ports:" on purpose - only the backend needs to reach MySQL.
+    # Uncomment to inspect the DB from your host (Workbench, etc.):
+    # ports:
+    #   - "3306:3306"
+    healthcheck:
+      # 127.0.0.1 (TCP) so it only passes once the real server is up,
+      # not the temporary init server.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    container_name: netflix-backend
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: db                 # service name on the compose network
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-netflix_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-netflix_pw_123}
+      MYSQL_DB: ${MYSQL_DB:-netflix_clone}
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-string}
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    env_file: .env
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the JS bundle at build time. The BROWSER calls this URL,
+        # so it must be reachable from the user's machine.
+        # No trailing slash (the app appends /api).
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8000}
+    container_name: netflix-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  mysql_data:
