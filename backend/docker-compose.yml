@@ -1,46 +1,19 @@
-# Netflix Clone - 3-tier stack: MySQL (data) -> FastAPI (logic) -> React/nginx (UI)
-# Usage:  docker compose up --build -d      then open http://localhost:3000
+# Single EC2 instance (frontend + backend) + Amazon RDS MySQL (data tier).
+# There is NO db container here - the backend connects to RDS.
+# Usage on EC2:  docker compose -f docker-compose.aws.yml up --build -d
 
 services:
-  db:
-    image: mysql:8.0
-    container_name: netflix-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pw_change_me}
-      MYSQL_DATABASE: ${MYSQL_DB:-netflix_clone}
-      MYSQL_USER: ${MYSQL_USER:-netflix_app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-netflix_pw_123}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-    # No "ports:" on purpose - only the backend needs to reach MySQL.
-    # Uncomment to inspect the DB from your host (Workbench, etc.):
-    # ports:
-    #   - "3306:3306"
-    healthcheck:
-      # 127.0.0.1 (TCP) so it only passes once the real server is up,
-      # not the temporary init server.
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
-
   backend:
     build: ./backend
     container_name: netflix-backend
-    restart: unless-stopped
+    restart: unless-stopped          # retries automatically if RDS is briefly unreachable
     environment:
-      MYSQL_HOST: db                 # service name on the compose network
-      MYSQL_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER:-netflix_app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-netflix_pw_123}
+      MYSQL_HOST: ${MYSQL_HOST}      # RDS endpoint, e.g. mydb.abc123.us-east-1.rds.amazonaws.com
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DB: ${MYSQL_DB:-netflix_clone}
-      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-string}
-    depends_on:
-      db:
-        condition: service_healthy
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "8000:8000"
 
@@ -48,16 +21,12 @@ services:
     build:
       context: ./frontend
       args:
-        # Baked into the JS bundle at build time. The BROWSER calls this URL,
-        # so it must be reachable from the user's machine.
-        # No trailing slash (the app appends /api).
-        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8000}
+        # Baked into the JS at build time. Browsers call this URL, so use the
+        # EC2 PUBLIC IP / domain (not localhost). No trailing slash.
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
     container_name: netflix-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "3000:80"
-
-volumes:
-  mysql_data:
+      - "80:80"
