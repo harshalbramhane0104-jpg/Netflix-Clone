@@ -1,0 +1,32 @@
+# Single EC2 instance (frontend + backend) + Amazon RDS MySQL (data tier).
+# There is NO db container here - the backend connects to RDS.
+# Usage on EC2:  docker compose -f docker-compose.aws.yml up --build -d
+
+services:
+  backend:
+    build: ./backend
+    container_name: netflix-backend
+    restart: unless-stopped          # retries automatically if RDS is briefly unreachable
+    environment:
+      MYSQL_HOST: ${MYSQL_HOST}      # RDS endpoint, e.g. mydb.abc123.us-east-1.rds.amazonaws.com
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: ${MYSQL_DB:-netflix_clone}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the JS at build time. Browsers call this URL, so use the
+        # EC2 PUBLIC IP / domain (not localhost). No trailing slash.
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
+    container_name: netflix-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
